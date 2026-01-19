@@ -3,3 +3,7 @@ build/
 
 # vim swp files that may persist
 *.swp
+
+
+# randome screenshots which i take and forget to delete
+*.png

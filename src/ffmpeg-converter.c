@@ -34,21 +34,21 @@ int SHM2AV_pix_fmt(uint32_t shmfmt, enum AVPixelFormat* into) {
     }
 }
 
-int ffmpeg_encode(uint8_t* bytbuf, uint32_t width, uint32_t height, uint32_t stride, uint32_t format, enum AVPixelFormat dstfmt, enum AVCodecID filetype, uint8_t** outbuf, int* outsize) {
+int ffmpeg_encode(struct encoder_input rawimg, struct encoder_params params, struct encoded_data* data) {
     int call_result = 0;
 
     enum AVPixelFormat scrfmt;
-    call_result = SHM2AV_pix_fmt(format, &scrfmt);
+    call_result = SHM2AV_pix_fmt(rawimg.format, &scrfmt);
     if(call_result < 0) 
         goto exit;
 
-    struct SwsContext* swsctx = sws_getContext(width, height, scrfmt, width, height, dstfmt, SWS_POINT, NULL, NULL, NULL);
+    struct SwsContext* swsctx = sws_getContext(rawimg.width, rawimg.height, scrfmt, rawimg.width, rawimg.height, params.dstfmt, SWS_POINT, NULL, NULL, NULL);
     if(!swsctx) {
         call_result = -1;
         goto exit;
     }
 
-    const AVPixFmtDescriptor* dstfmtdes = av_pix_fmt_desc_get(dstfmt);
+    const AVPixFmtDescriptor* dstfmtdes = av_pix_fmt_desc_get(params.dstfmt);
     int bpp = av_get_padded_bits_per_pixel(dstfmtdes);
 
     const uint8_t* srcplanes[AV_NUM_DATA_POINTERS];
@@ -56,14 +56,14 @@ int ffmpeg_encode(uint8_t* bytbuf, uint32_t width, uint32_t height, uint32_t str
     uint8_t* dstplanes[AV_NUM_DATA_POINTERS];
     int dststrides[AV_NUM_DATA_POINTERS];
     
-    srcplanes[0] = bytbuf;
-    srcstrides[0] = stride;
-    dstplanes[0] = malloc(width*(bpp/8)*height);
+    srcplanes[0] = rawimg.buf;
+    srcstrides[0] = rawimg.stride;
+    dstplanes[0] = malloc(rawimg.width*(bpp/8)*rawimg.height);
     if(!dstplanes[0]) {
         call_result = -1;
         goto free_swsctx;
     }
-    dststrides[0] = width*(bpp/8);
+    dststrides[0] = rawimg.width*(bpp/8);
 
     for(uint32_t i=1; i<AV_NUM_DATA_POINTERS; i++) {
         srcplanes[i] = NULL;
@@ -71,12 +71,12 @@ int ffmpeg_encode(uint8_t* bytbuf, uint32_t width, uint32_t height, uint32_t str
         dstplanes[i] = NULL;
         dststrides[i] = 0;
     } 
-
-    call_result = sws_scale(swsctx, srcplanes, srcstrides, 0, height, dstplanes, dststrides);
+    
+    call_result = sws_scale(swsctx, srcplanes, srcstrides, 0, rawimg.height, dstplanes, dststrides);
     if(call_result < 0)
          goto free_plane;
 
-    const AVCodec* codec = avcodec_find_encoder(filetype);
+    const AVCodec* codec = avcodec_find_encoder(params.ftype);
     if(!codec) {
         call_result = -1;
         goto free_plane;
@@ -88,9 +88,9 @@ int ffmpeg_encode(uint8_t* bytbuf, uint32_t width, uint32_t height, uint32_t str
         goto free_plane;
     }
 
-    encctx->width = width;
-    encctx->height = height;
-    encctx->pix_fmt = dstfmt;
+    encctx->width = rawimg.width;
+    encctx->height = rawimg.height;
+    encctx->pix_fmt = params.dstfmt;
     encctx->time_base = (AVRational) {1, 1};
 
     call_result = avcodec_open2(encctx, codec, NULL);
@@ -143,15 +143,15 @@ int ffmpeg_encode(uint8_t* bytbuf, uint32_t width, uint32_t height, uint32_t str
 
     } while(call_result >= 0);
     call_result = 0;
-    *outbuf = malloc(imgsize);
-    
+   
+    data->buf = malloc(imgsize);
     int p = 0;
     for(size_t i=0; i<idx; i++) {
-        memcpy((*outbuf + p), pkts[i]->data, pkts[i]->size);
+        memcpy((data->buf + p), pkts[i]->data, pkts[i]->size);
         p += pkts[i]->size;
     }
 
-    *outsize = imgsize;
+    data->size = imgsize;
 
 free_pkts:
     for(size_t i=0; i<idx; i++)

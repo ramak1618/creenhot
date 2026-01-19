@@ -40,8 +40,6 @@ int main(int argc, char** argv) {
         .done = false,
         .failed = false
     };
-    uint8_t* imgbuf = NULL;
-    FILE* outfile = NULL;
  
     struct arg_t args = parse_args(argc, argv);
     if(!args.sensible) {
@@ -111,22 +109,40 @@ int main(int argc, char** argv) {
         goto exit;
 
     
-    int imgsize;
-    int encoder_result = ffmpeg_encode(img.bytbuf, img.width, img.height, img.stride, img.format, args.fmt, args.ftype, &imgbuf, &imgsize);
+    struct encoder_input rawimg = {
+        .buf = img.bytbuf,
+        .width = img.width,
+        .height = img.height,
+        .stride = img.stride,
+        .format = img.format
+    };
+
+    struct encoder_params params = {
+        .cimg_x = 0,
+        .cimg_y = 0,
+        .cimg_width = rawimg.width,
+        .cimg_height = rawimg.height,
+        .dstfmt = args.fmt,
+        .ftype = args.ftype
+    };
+
+    struct encoded_data imgdata = {
+        .buf = NULL,
+        .size = 0
+    };
+
+    int encoder_result = ffmpeg_encode(rawimg, params, &imgdata);
     if(encoder_result < 0) {
         fprintf(stderr, "Error while encoding image!\n");
         goto exit;
     }
+    FILE* outfile = fopen(args.filename, "wb");
+    fwrite(imgdata.buf, 1, imgdata.size, outfile);
 
-    outfile = fopen(args.filename, "wb");
-    fwrite(imgbuf, 1, imgsize, outfile);
+    if(imgdata.buf)
+        free(imgdata.buf);
+    fclose(outfile);
 exit:
-    if(outfile) 
-        fclose(outfile);
-
-    if(imgbuf) 
-        free(imgbuf);
-
     if(img.buffer)
         wl_buffer_destroy(img.buffer);
     if(img.shm_pool)
