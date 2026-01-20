@@ -3,31 +3,39 @@
 #include <wayland-client.h>
 #include <string.h>
 
-int SHM2AV_pix_fmt(uint32_t shmfmt, enum AVPixelFormat* into) {
+int SHM2AV_pix_fmt(uint32_t shmfmt, enum AVPixelFormat* into, int* Bpp) {
     switch(shmfmt) {
         case WL_SHM_FORMAT_BGRX8888:
             *into = AV_PIX_FMT_0RGB;
+            *Bpp = 4;
             return 0;
         case WL_SHM_FORMAT_XRGB8888:
             *into = AV_PIX_FMT_BGR0;
+            *Bpp = 4;
             return 0;
         case WL_SHM_FORMAT_RGBX8888:
             *into = AV_PIX_FMT_0BGR;
+            *Bpp = 4;
             return 0;
         case WL_SHM_FORMAT_XBGR8888:
             *into = AV_PIX_FMT_RGB0;
+            *Bpp = 4;
             return 0;
         case WL_SHM_FORMAT_BGRA8888:
             *into = AV_PIX_FMT_ARGB;
+            *Bpp = 4;
             return 0;
         case WL_SHM_FORMAT_ARGB8888:
             *into = AV_PIX_FMT_BGRA;
+            *Bpp = 4;
             return 0;
         case WL_SHM_FORMAT_RGBA8888:
             *into = AV_PIX_FMT_ABGR;
+            *Bpp = 4;
             return 0;
         case WL_SHM_FORMAT_ABGR8888:
             *into = AV_PIX_FMT_RGBA;
+            *Bpp = 4;
             return 0;
         default:
             return -1;
@@ -38,11 +46,12 @@ int ffmpeg_encode(struct encoder_input rawimg, struct encoder_params params, str
     int call_result = 0;
 
     enum AVPixelFormat scrfmt;
-    call_result = SHM2AV_pix_fmt(rawimg.format, &scrfmt);
+    int srcBpp;
+    call_result = SHM2AV_pix_fmt(rawimg.format, &scrfmt, &srcBpp);
     if(call_result < 0) 
         goto exit;
 
-    struct SwsContext* swsctx = sws_getContext(rawimg.width, rawimg.height, scrfmt, rawimg.width, rawimg.height, params.dstfmt, SWS_POINT, NULL, NULL, NULL);
+    struct SwsContext* swsctx = sws_getContext(params.cimg_width, params.cimg_height, scrfmt, params.cimg_width, params.cimg_height, params.dstfmt, SWS_POINT, NULL, NULL, NULL);
     if(!swsctx) {
         call_result = -1;
         goto exit;
@@ -56,14 +65,25 @@ int ffmpeg_encode(struct encoder_input rawimg, struct encoder_params params, str
     uint8_t* dstplanes[AV_NUM_DATA_POINTERS];
     int dststrides[AV_NUM_DATA_POINTERS];
     
-    srcplanes[0] = rawimg.buf;
+    srcplanes[0] = rawimg.buf + params.cimg_y*rawimg.stride + params.cimg_x*srcBpp; //rawimg.buf;
     srcstrides[0] = rawimg.stride;
+
+    /**
     dstplanes[0] = malloc(rawimg.width*(bpp/8)*rawimg.height);
     if(!dstplanes[0]) {
         call_result = -1;
         goto free_swsctx;
     }
     dststrides[0] = rawimg.width*(bpp/8);
+    **/
+    dststrides[0] = params.cimg_width * (bpp/8) ;
+    int padd = (32 - dststrides[0] % 32) % 32;
+    dststrides[0] += padd;
+    dstplanes[0] = malloc(dststrides[0] * params.cimg_height); 
+    if(!dstplanes[0]) {
+        call_result = -1;
+        goto free_swsctx;
+    }
 
     for(uint32_t i=1; i<AV_NUM_DATA_POINTERS; i++) {
         srcplanes[i] = NULL;
@@ -71,8 +91,9 @@ int ffmpeg_encode(struct encoder_input rawimg, struct encoder_params params, str
         dstplanes[i] = NULL;
         dststrides[i] = 0;
     } 
-    
-    call_result = sws_scale(swsctx, srcplanes, srcstrides, 0, rawimg.height, dstplanes, dststrides);
+   
+
+    call_result = sws_scale(swsctx, srcplanes, srcstrides, 0, params.cimg_height, dstplanes, dststrides);
     if(call_result < 0)
          goto free_plane;
 
@@ -88,8 +109,8 @@ int ffmpeg_encode(struct encoder_input rawimg, struct encoder_params params, str
         goto free_plane;
     }
 
-    encctx->width = rawimg.width;
-    encctx->height = rawimg.height;
+    encctx->width = params.cimg_width;
+    encctx->height = params.cimg_height;
     encctx->pix_fmt = params.dstfmt;
     encctx->time_base = (AVRational) {1, 1};
 

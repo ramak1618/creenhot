@@ -24,7 +24,8 @@ int main(int argc, char** argv) {
         .wm_base = NULL,
         .failed = false,
         .using_select = false
-    };
+    }; 
+    struct zwlr_screencopy_frame_v1* frame = NULL;
     struct image img = {
         .fildes = -1,
         .rawbuf = NULL,
@@ -77,14 +78,7 @@ int main(int argc, char** argv) {
 
     img.shm = interfaces.shm;
    
-    struct zwlr_screencopy_frame_v1* frame;
-    if(args.mode == CREENHOT_MODE_FULLSCREEN) {
-        frame = zwlr_screencopy_manager_v1_capture_output(interfaces.screencopy_manager, 0 /* cursor hide */, interfaces.output);
-    }
-    else {
-        fprintf(stderr, "not yet impl.!");
-        goto exit;
-    }
+    frame = zwlr_screencopy_manager_v1_capture_output(interfaces.screencopy_manager, 0 /* cursor hide */, interfaces.output);
 
     struct zwlr_screencopy_frame_v1_listener frame_listener = {
         .buffer = frame_buffer_prepare,
@@ -105,10 +99,6 @@ int main(int argc, char** argv) {
         }
     }
 
-    if(!img.done || img.failed) 
-        goto exit;
-
-    
     struct encoder_input rawimg = {
         .buf = img.bytbuf,
         .width = img.width,
@@ -117,14 +107,28 @@ int main(int argc, char** argv) {
         .format = img.format
     };
 
-    struct encoder_params params = {
-        .cimg_x = 0,
-        .cimg_y = 0,
-        .cimg_width = rawimg.width,
-        .cimg_height = rawimg.height,
-        .dstfmt = args.fmt,
-        .ftype = args.ftype
-    };
+    struct encoder_params params;
+    if(args.mode == CREENHOT_MODE_FULLSCREEN) {
+        params = (struct encoder_params) {
+            .cimg_x = 0,
+            .cimg_y = 0,
+            .cimg_width = img.width,
+            .cimg_height = img.height,
+            .dstfmt = args.fmt,
+            .ftype = args.ftype
+        };
+    }
+    else if(args.mode == CREENHOT_MODE_REGION) {
+        params = (struct encoder_params) {
+            .cimg_x = args.cimg_x,
+            .cimg_y = args.cimg_y,
+            .cimg_width = args.cimg_width,
+            .cimg_height = args.cimg_height,
+            .dstfmt = args.fmt,
+            .ftype = args.ftype
+        };
+    }
+
 
     struct encoded_data imgdata = {
         .buf = NULL,

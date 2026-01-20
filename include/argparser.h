@@ -17,6 +17,13 @@ struct arg_t {
     enum AVPixelFormat fmt;
     enum AVCodecID ftype;
     const char* filename;
+
+
+    uint32_t cimg_x;
+    uint32_t cimg_y;
+    uint32_t cimg_width;
+    uint32_t cimg_height;
+
     bool sensible;
 };
 
