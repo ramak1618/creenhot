@@ -2,15 +2,25 @@
 
 cc ?= gcc
 pixman ?= /usr/include/pixman-1/
+ffmpeg ?= /usr/lib/
+wayland ?= /usr/lib/
 
 compile_flags_general := -Wall -Wextra -Wpedantic -Werror
 
-src = ./src/argparser.c ./src/ffmpeg-converter.c
-out = ./build/creenhot
+src := ./src/argparser.c ./src/ffmpeg-converter.c
+out := ./build/creenhot
 
-define wayscan
-	wayland-scanner client-header ./protocol/$(1).xml ./build/wayscanned/$(1).h
-	wayland-scanner private-code ./protocol/$(1).xml ./build/wayscanned/$(1).c
+wlr_screencopy := ./protocol/wlr-screencopy-unstable-v1.xml
+xdg_shell := ./protocol/xdg-shell.xml
+
+define wayscan_wlr_screencopy
+	wayland-scanner client-header $(wlr_screencopy) ./build/wayscanned/wlr-screencopy-unstable-v1.h
+	wayland-scanner private-code  $(wlr_screencopy) ./build/wayscanned/wlr-screencopy-unstable-v1.c
+endef
+
+define wayscan_xdg_shell
+	wayland-scanner client-header $(xdg_shell) ./build/wayscanned/xdg-shell.h
+	wayland-scanner private-code  $(xdg_shell) ./build/wayscanned/xdg-shell.c
 endef
 
 define makedirs
@@ -21,11 +31,21 @@ endef
 clean: ./build
 	rm -r ./build/
 
-wlr: $(pixman) $(src)
+wlr_flags := -DWLR_USE_UNSTABLE
+wlr_src := ./build/wayscanned/wlr-screencopy-unstable-v1.c ./build/wayscanned/xdg-shell.c 
+wlr_src_main := ./src/wlr/creenhot.c 
+wlr: $(pixman) $(src) $(wlr_src_main) $(wayland) $(ffmpeg) $(wlr_screencopy) $(xdg_shell) 
 	$(makedirs)
-	$(call wayscan,wlr-screencopy-unstable-v1)
-	$(call wayscan,xdg-shell)
-	$(cc) -I$(pixman) -DWLR_USE_UNSTABLE $(compile_flags_general) ./build/wayscanned/wlr-screencopy-unstable-v1.c ./build/wayscanned/xdg-shell.c $(src) ./src/wlr/creenhot.c -lwayland-client -lavutil -lavcodec -lswscale -o $(out)
+	$(wayscan_wlr_screencopy)
+	$(wayscan_xdg_shell)
+	$(cc) -I$(pixman) $(wlr_flags) $(compile_flags_general) $(wlr_src) $(src) $(wlr_src_main) -L$(wayland) -lwayland-client -L$(ffmpeg) -lavutil -lavcodec -lswscale -o $(out)
+	chmod 755 $(out)
+
+wlr_debug:
+	$(makedirs)
+	$(wayscan_wlr_screencopy)
+	$(wayscan_xdg_shell)
+	$(cc) -g -I$(pixman) $(wlr_flags) $(compile_flags_general) $(wlr_src) $(src) $(wlr_src_main) -L$(wayland) -lwayland-client -L$(ffmpeg) -lavutil -lavcodec -lswscale -o $(out)
 	chmod 755 $(out)
 
 install: $(out)
