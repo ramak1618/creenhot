@@ -13,6 +13,79 @@
 
 const char* const SHM_FILENAME = "/creenhot_shm";
 
+struct pointer_stuff {
+    struct wl_surface* curface;    
+    struct wl_buffer* buffer;
+
+    uint32_t startx;
+    uint32_t starty;
+    uint32_t endx;
+    uint32_t endy;
+
+    bool started;
+    bool ended;
+    bool done;
+};
+
+void ptrenter(void* data, struct wl_pointer* pointer, uint32_t serial, struct wl_surface* surface, wl_fixed_t x, wl_fixed_t y) {
+    struct pointer_stuff* ps = (struct pointer_stuff*) data;
+    (void) surface;
+    (void) x;
+    (void) y;
+
+    wl_pointer_set_cursor(pointer, serial, ps->curface, 0, 0);
+    wl_surface_attach(ps->curface, ps->buffer, 0, 0);
+    wl_surface_commit(ps->curface);
+}
+
+void ptrleave(void* data, struct wl_pointer* pointer, uint32_t serial, struct wl_surface* surface) {
+    (void) data;
+    (void) pointer;
+    (void) serial;
+    (void) surface;
+}
+
+void ptrframe(void* data, struct wl_pointer* pointer) {
+    (void) data;
+    (void) pointer;
+}
+
+void ptrmove(void* data, struct wl_pointer* pointer, uint32_t time, wl_fixed_t surface_x, wl_fixed_t surface_y) {
+    (void) pointer;
+    (void) time;
+
+    struct pointer_stuff* ps = (struct pointer_stuff*) data;
+    if(!ps->started) {
+        ps->startx = wl_fixed_to_int(surface_x);
+        ps->starty = wl_fixed_to_int(surface_y);
+    }
+    else {
+        ps->endx = wl_fixed_to_int(surface_x);
+        ps->endy = wl_fixed_to_int(surface_y);
+    }
+}
+
+void ptrpress(void* data, struct wl_pointer* pointer, uint32_t serial, uint32_t time, uint32_t button, uint32_t state) {
+    (void) pointer;
+    (void) serial;
+    (void) time;
+    (void) button;
+    (void) state;
+
+    struct pointer_stuff* ps = (struct pointer_stuff*) data;
+    if(ps->started) {
+        ps->ended = true;
+    }
+    else {
+        ps->started = true;
+    }
+}
+
+void Xsurface_ack(void* data, struct xdg_surface* Xsurface, uint32_t serial) {
+    (void) data;
+    xdg_surface_ack_configure(Xsurface, serial);
+}
+
 int main(int argc, char** argv) {
     struct wl_display* display = NULL;
     struct wl_registry* registry = NULL;
@@ -127,6 +200,83 @@ int main(int argc, char** argv) {
             .dstfmt = args.fmt,
             .ftype = args.ftype
         };
+    }
+    else if(args.mode == CREENHOT_MODE_SELECT) {
+        // IF IT WORKS IT WORKS!!
+        wl_buffer_destroy(img.buffer);
+        wl_shm_pool_destroy(img.shm_pool);
+        munmap(img.rawbuf, img.imgsize);
+
+        uint32_t cursor_format = WL_SHM_FORMAT_ARGB8888;
+        uint32_t cursor_width = 32;
+        uint32_t cursor_height = 32;
+        uint32_t cursor_stride = cursor_width * 4;
+
+        ftruncate(img.fildes, img.stride*img.height + cursor_stride*cursor_height);
+        img.rawbuf = mmap(NULL, img.stride*img.height + cursor_stride*cursor_height, PROT_READ | PROT_WRITE, MAP_SHARED, img.fildes, 0);
+        img.shm_pool = wl_shm_create_pool(img.shm, img.fildes, img.stride*img.height + cursor_stride*cursor_height);
+        struct wl_buffer* surface_buffer = wl_shm_pool_create_buffer(img.shm_pool, 0, img.width, img.height, img.stride, img.format);
+        struct wl_buffer* cursor_buffer  = wl_shm_pool_create_buffer(img.shm_pool, img.imgsize, cursor_width, cursor_height, cursor_stride, cursor_format);
+       
+        for(uint32_t i=0; i<cursor_stride*cursor_height; i++) {
+            ((uint8_t*)(img.rawbuf)) [img.stride*img.height + i] = 255;
+        }
+
+        struct wl_surface* curface = wl_compositor_create_surface(interfaces.compositor);
+        struct wl_surface* surface = wl_compositor_create_surface(interfaces.compositor);
+        struct xdg_surface* Xsurface = xdg_wm_base_get_xdg_surface(interfaces.wm_base, surface);
+        struct xdg_surface_listener Xsurface_listener = {
+            .configure = Xsurface_ack
+        };
+        xdg_surface_add_listener(Xsurface, &Xsurface_listener, NULL);
+
+        struct wl_pointer* pointer = wl_seat_get_pointer(interfaces.seat);
+        struct wl_pointer_listener pointer_listener = {
+            .enter = ptrenter,
+            .leave = ptrleave,
+            .motion = ptrmove,
+            .button = ptrpress,
+            .axis = NULL,
+            .frame = ptrframe,
+            .axis_source = NULL, 
+            .axis_stop = NULL,
+            .axis_discrete = NULL,
+            .axis_value120 = NULL,
+            .axis_relative_direction = NULL
+        };
+        struct pointer_stuff ps = {
+            .curface = curface,
+            .buffer = cursor_buffer,
+            .started = false,
+            .ended = false,
+            .done = false
+        };
+
+        wl_pointer_add_listener(pointer, &pointer_listener, &ps);
+        struct xdg_toplevel* toplevel = xdg_surface_get_toplevel(Xsurface);
+        (void) toplevel;
+        xdg_toplevel_set_fullscreen(toplevel, interfaces.output);
+        wl_surface_commit(surface);
+
+        wl_display_roundtrip(display);
+        wl_surface_attach(surface, surface_buffer, 0, 0);
+        wl_surface_commit(surface);
+        wl_display_roundtrip(display);
+
+
+        wl_display_roundtrip(display);
+        while(wl_display_dispatch(display) && !ps.ended);
+        
+
+        params = (struct encoder_params) {
+            .cimg_x = ps.startx,
+            .cimg_y = ps.starty,
+            .cimg_width = ps.endx - ps.startx,
+            .cimg_height = ps.endy - ps.starty,
+            .dstfmt = args.fmt,
+            .ftype = args.ftype
+        };
+
     }
 
 

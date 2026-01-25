@@ -11,6 +11,16 @@ struct arg_t parse_args(int argc, char* argv[]) {
         };
     }
 
+    if(argc == 3) {
+        return (struct arg_t) {
+            .mode = CREENHOT_MODE_SELECT,
+            .fmt = AV_PIX_FMT_RGBA,
+            .ftype = AV_CODEC_ID_PNG,
+            .filename = argv[1],
+            .sensible = true
+        };
+    }
+
     if(argc == 6) {
         return (struct arg_t) {
             .mode = CREENHOT_MODE_REGION,
