@@ -1,4 +1,4 @@
-.PHONE: clean wlr install uninstall
+.PHONY: clean wlr install uninstall
 
 cc ?= gcc
 pixman ?= /usr/include/pixman-1/
@@ -7,7 +7,7 @@ wayland ?= /usr/lib/
 
 compile_flags_general := -Wall -Wextra -Wpedantic -Werror
 
-src := ./src/argparser.c ./src/ffmpeg-converter.c
+src := ./src/argparser.c ./src/wlr/screencopy.c ./src/select.c ./src/ffmpeg-converter.c
 out := ./build/creenhot
 
 wlr_screencopy := ./protocol/wlr-screencopy-unstable-v1.xml

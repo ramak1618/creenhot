@@ -3,151 +3,152 @@
 #include <wayland-client.h>
 #include <string.h>
 
-int SHM2AV_pix_fmt(uint32_t shmfmt, enum AVPixelFormat* into, int* Bpp) {
-    switch(shmfmt) {
-        case WL_SHM_FORMAT_BGRX8888:
-            *into = AV_PIX_FMT_0RGB;
-            *Bpp = 4;
-            return 0;
-        case WL_SHM_FORMAT_XRGB8888:
-            *into = AV_PIX_FMT_BGR0;
-            *Bpp = 4;
-            return 0;
-        case WL_SHM_FORMAT_RGBX8888:
-            *into = AV_PIX_FMT_0BGR;
-            *Bpp = 4;
-            return 0;
-        case WL_SHM_FORMAT_XBGR8888:
-            *into = AV_PIX_FMT_RGB0;
-            *Bpp = 4;
-            return 0;
-        case WL_SHM_FORMAT_BGRA8888:
-            *into = AV_PIX_FMT_ARGB;
-            *Bpp = 4;
-            return 0;
-        case WL_SHM_FORMAT_ARGB8888:
-            *into = AV_PIX_FMT_BGRA;
-            *Bpp = 4;
-            return 0;
-        case WL_SHM_FORMAT_RGBA8888:
-            *into = AV_PIX_FMT_ABGR;
-            *Bpp = 4;
-            return 0;
-        case WL_SHM_FORMAT_ABGR8888:
-            *into = AV_PIX_FMT_RGBA;
-            *Bpp = 4;
-            return 0;
-        default:
-            return -1;
+static void init_av_pix_fmt(struct scale_t* img) {
+    switch(img->shmfmt) {
+       case WL_SHM_FORMAT_BGRX8888:
+            img->scrfmt = AV_PIX_FMT_0RGB;
+            img->srcBpp = 4;
+            break;
+       case WL_SHM_FORMAT_XRGB8888:
+            img->scrfmt = AV_PIX_FMT_BGR0;
+            img->srcBpp = 4;
+            break;
+       case WL_SHM_FORMAT_RGBX8888:
+            img->scrfmt = AV_PIX_FMT_0BGR;
+            img->srcBpp = 4;
+            break;
+       case WL_SHM_FORMAT_XBGR8888:
+            img->scrfmt = AV_PIX_FMT_RGB0;
+            img->srcBpp = 4;
+            break;
+       case WL_SHM_FORMAT_BGRA8888:
+            img->scrfmt = AV_PIX_FMT_ARGB;
+            img->srcBpp = 4;
+            break;
+       case WL_SHM_FORMAT_ARGB8888:
+            img->scrfmt = AV_PIX_FMT_BGRA;
+            img->srcBpp = 4;
+            break;
+       case WL_SHM_FORMAT_RGBA8888:
+            img->scrfmt = AV_PIX_FMT_ABGR;
+            img->srcBpp = 4;
+            break;
+       case WL_SHM_FORMAT_ABGR8888:
+            img->scrfmt = AV_PIX_FMT_RGBA;
+            img->srcBpp = 4;
+            break;
+       default:
+            img->failed = true;
     }
 }
 
-int ffmpeg_encode(struct encoder_input rawimg, struct encoder_params params, struct encoded_data* data) {
-    int call_result = 0;
+void ffmpeg_scale(struct scale_t* img) {
+    img->failed = false;
+    init_av_pix_fmt(img);
+    if(img->failed)
+        return;
 
-    enum AVPixelFormat scrfmt;
-    int srcBpp;
-    call_result = SHM2AV_pix_fmt(rawimg.format, &scrfmt, &srcBpp);
-    if(call_result < 0) 
-        goto exit;
+    const AVPixFmtDescriptor* dstfmtdes = av_pix_fmt_desc_get(img->dstfmt);
+    img->dstBpp = av_get_padded_bits_per_pixel(dstfmtdes) / 8;
 
-    struct SwsContext* swsctx = sws_getContext(params.cimg_width, params.cimg_height, scrfmt, params.cimg_width, params.cimg_height, params.dstfmt, SWS_POINT, NULL, NULL, NULL);
+    const uint8_t* srcplanes[AV_NUM_DATA_POINTERS] = {0};
+    int srcstrides[AV_NUM_DATA_POINTERS] = {0};
+    uint8_t* dstplanes[AV_NUM_DATA_POINTERS] = {0};
+    int dststrides[AV_NUM_DATA_POINTERS] = {0};
+
+    srcplanes[0] = img->srcbuf + img->sy*img->stride + img->sx*img->srcBpp;
+    srcstrides[0] = img->stride;
+
+    dststrides[0] = img->dstBpp * img->width;
+    dststrides[0] += (32 - dststrides[0]%32) % 32;
+
+    dstplanes[0] = malloc(dststrides[0] * img->height);
+    if(!dstplanes[0]) {
+        img->failed = true;
+        return;
+    }
+
+    struct SwsContext* swsctx = sws_getContext(img->width, img->height, img->scrfmt, img->width, img->height, img->dstfmt, SWS_POINT, NULL, NULL, NULL);
     if(!swsctx) {
-        call_result = -1;
+        img->failed = true;
         goto exit;
     }
 
-    const AVPixFmtDescriptor* dstfmtdes = av_pix_fmt_desc_get(params.dstfmt);
-    int bpp = av_get_padded_bits_per_pixel(dstfmtdes);
-
-    const uint8_t* srcplanes[AV_NUM_DATA_POINTERS];
-    int srcstrides[AV_NUM_DATA_POINTERS];
-    uint8_t* dstplanes[AV_NUM_DATA_POINTERS];
-    int dststrides[AV_NUM_DATA_POINTERS];
-    
-    srcplanes[0] = rawimg.buf + params.cimg_y*rawimg.stride + params.cimg_x*srcBpp; //rawimg.buf;
-    srcstrides[0] = rawimg.stride;
-
-    /**
-    dstplanes[0] = malloc(rawimg.width*(bpp/8)*rawimg.height);
-    if(!dstplanes[0]) {
-        call_result = -1;
-        goto free_swsctx;
-    }
-    dststrides[0] = rawimg.width*(bpp/8);
-    **/
-    dststrides[0] = params.cimg_width * (bpp/8) ;
-    int padd = (32 - dststrides[0] % 32) % 32;
-    dststrides[0] += padd;
-    dstplanes[0] = malloc(dststrides[0] * params.cimg_height); 
-    if(!dstplanes[0]) {
-        call_result = -1;
-        goto free_swsctx;
+    int scale_success = sws_scale(swsctx, srcplanes, srcstrides, 0, img->height, dstplanes, dststrides);
+    if(scale_success < 0) {
+        img->failed = true;
+        goto exit;
     }
 
-    for(uint32_t i=1; i<AV_NUM_DATA_POINTERS; i++) {
-        srcplanes[i] = NULL;
-        srcstrides[i] = 0;
-        dstplanes[i] = NULL;
-        dststrides[i] = 0;
-    } 
-   
+    img->dstbuf = dstplanes[0];
+exit:
+    if(swsctx) 
+        sws_freeContext(swsctx);
+    if(img->failed)
+        free(dstplanes[0]);
+}
 
-    call_result = sws_scale(swsctx, srcplanes, srcstrides, 0, params.cimg_height, dstplanes, dststrides);
-    if(call_result < 0)
-         goto free_plane;
+void ffmpeg_encode(struct encoder_t* img) {
+    img->failed = false;
 
-    const AVCodec* codec = avcodec_find_encoder(params.ftype);
+    const AVCodec* codec = avcodec_find_encoder(img->ftype);
     if(!codec) {
-        call_result = -1;
-        goto free_plane;
+        img->failed = true;
+        return;
     }
 
     AVCodecContext* encctx = avcodec_alloc_context3(codec);
     if(!encctx) {
-        call_result = -1;
-        goto free_plane;
+        img->failed = true;
+        return;
     }
 
-    encctx->width = params.cimg_width;
-    encctx->height = params.cimg_height;
-    encctx->pix_fmt = params.dstfmt;
+    encctx->width = img->width;
+    encctx->height = img->height;
+    encctx->pix_fmt = img->fmt;
     encctx->time_base = (AVRational) {1, 1};
-
-    call_result = avcodec_open2(encctx, codec, NULL);
-    if(call_result < 0)
+    if(avcodec_open2(encctx, codec, NULL) < 0) {
+        img->failed = true;
         goto exit;
+    }
+
     AVFrame* frame = av_frame_alloc();
     if(!frame) {
-        call_result = -1;
-        goto free_encctx;
+        img->failed = true;
+        goto exit;
     }
-
     frame->width = encctx->width;
     frame->height = encctx->height;
     frame->format = encctx->pix_fmt;
 
-    call_result = av_frame_get_buffer(frame, bpp);
-    if(call_result < 0) goto free_frame;
+    if(av_frame_get_buffer(frame, img->bpp) < 0) {
+        img->failed = true;
+        goto exit;
+    }
 
-    
-    frame->data[0] = dstplanes[0];
-    avcodec_send_frame(encctx, frame);
-    if(call_result < 0) goto free_frame;
-   
-   
+    frame->data[0] = img->imgbuf;
+    if(avcodec_send_frame(encctx, frame) < 0) {
+        img->failed = true;
+        goto exit;
+    }
+
     size_t capacity = 10;
     size_t idx = 0;
     AVPacket** pkts = malloc(capacity * sizeof(AVPacket*));
+    if(!pkts) {
+        img->failed = true;
+        goto exit;
+    }
     int imgsize = 0;
+    int result;
     do {
         pkts[idx] = av_packet_alloc();
-        call_result = avcodec_receive_packet(encctx, pkts[idx]);
-        if(call_result == AVERROR(EAGAIN) || call_result == AVERROR_EOF) {
+        result = avcodec_receive_packet(encctx, pkts[idx]);
+        if(result == AVERROR(EAGAIN) || result == AVERROR_EOF)
             break;
-        }
-        else if(call_result < 0) {
-            goto free_pkts;
+        else if(result < 0) {
+            img->failed = true;
+            goto exit;
         }
 
         imgsize += pkts[idx]->size;
@@ -156,41 +157,32 @@ int ffmpeg_encode(struct encoder_input rawimg, struct encoder_params params, str
             capacity *= 2;
             AVPacket** tmp = realloc(pkts, capacity*sizeof(AVPacket*));
             if(!tmp) {
-                call_result = -1;
-                goto free_pkts;
+                img->failed = true;
+                goto exit;
             }
             pkts = tmp;
         }
+    } while(result >= 0);
 
-    } while(call_result >= 0);
-    call_result = 0;
-   
-    data->buf = malloc(imgsize);
-    int p = 0;
-    for(size_t i=0; i<idx; i++) {
-        memcpy((data->buf + p), pkts[i]->data, pkts[i]->size);
-        p += pkts[i]->size;
+    img->encbuf = malloc(imgsize);
+    if(!img->encbuf) {
+        img->failed = true;
+        goto exit;
     }
 
-    data->size = imgsize;
-
-free_pkts:
-    for(size_t i=0; i<idx; i++)
-        av_packet_free(&pkts[idx]);
-    free(pkts);
-
-free_frame:
-    av_frame_free(&frame);
-
-free_encctx:
-    avcodec_free_context(&encctx);
-
-free_plane:
-    free(dstplanes[0]);
-
-free_swsctx:
-    sws_freeContext(swsctx);
-
+    int p=0;
+    for(size_t i=0; i<idx; i++) {
+        memcpy(img->encbuf + p, pkts[i]->data, pkts[i]->size);
+        p += pkts[i]->size;
+    }
+    img->encsize = imgsize;
 exit:
-    return call_result;
+    if(pkts) {
+        for(size_t i=0; i<idx; i++) 
+            av_packet_free(&pkts[i]);
+        free(pkts);
+    }
+    if(frame)
+        av_frame_free(&frame);
+    avcodec_free_context(&encctx);
 }
