@@ -1,6 +1,6 @@
 About
 -----
-creenhot v0.1
+creenhot v0.2
 
 A custom screenshot utility tool for wayland compositors.
 
