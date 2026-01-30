@@ -239,12 +239,8 @@ struct selarea get_selection(struct selfaces* ifaces, struct surface_image* disp
     wl_surface_commit(dispface->wls);
     wl_display_roundtrip(ifaces->display);
 
-    while(!ps.ended) {
-        if(wl_display_dispatch(ifaces->display) == -1) {
-            break;
-        }
-
-        if(ps.cancelled) {
+    while(wl_display_dispatch(ifaces->display) != -1) {
+        if(ps.ended || ps.cancelled) {
             break;
         }
     }
