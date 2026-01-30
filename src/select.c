@@ -20,8 +20,15 @@ struct pointer_stuff {
 };
 
 static void prepare_cursor(struct surface_image* curface) {
-    for(uint32_t i=0; i<curface->size; i++)
-        curface->bytbuf[i] = 255;
+    uint32_t* pixbuf = (uint32_t*) curface->bytbuf;
+    for(uint32_t i=0; i<curface->height; i++) {
+        for(uint32_t j=0; j<curface->width; j++) {
+            uint32_t L = i*curface->width + j;
+            pixbuf[L] = 0;
+            if(i == 15 || j == 15) 
+                pixbuf[L] = 0x80FFFFFF;
+        }
+    }
 }
 
 static void Xsurface_ack(void* data, struct xdg_surface* Xsurface, uint32_t serial) {
@@ -35,7 +42,7 @@ static void ptrenter(void* data, struct wl_pointer* pointer, uint32_t serial, st
     (void) y;
 
     struct pointer_stuff* ps = (struct pointer_stuff*) data;
-    wl_pointer_set_cursor(pointer, serial, ps->cursor_surface, 0, 0);
+    wl_pointer_set_cursor(pointer, serial, ps->cursor_surface, 15, 15);
     wl_surface_attach(ps->cursor_surface, ps->cursor_buffer, 0, 0);
     wl_surface_commit(ps->cursor_surface);
 }
