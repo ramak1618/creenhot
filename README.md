@@ -58,7 +58,5 @@ creenhot shot.png "select"
 ```
 Creates a file called shot.png, which contains the rectangular area of user selected region.
 
-This is an early-access feature so you can expect crashes here. Also in future cursor should look nicer.
-
 [licenselink]: LICENSE.md
 [dependslink]: #dependencies
