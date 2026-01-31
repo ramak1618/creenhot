@@ -15,6 +15,7 @@ struct pointer_stuff {
     uint32_t endy;
 
     bool started;
+    bool startedstarted;
     bool ended;
     bool cancelled;
 };
@@ -62,6 +63,7 @@ static void ptrmove(void* data, struct wl_pointer* pointer, uint32_t time, wl_fi
 
     struct pointer_stuff* ps = (struct pointer_stuff*) data;
     if(ps->started) {
+        ps->startedstarted = true;
         ps->endx = wl_fixed_to_int(x);
         ps->endy = wl_fixed_to_int(y);
     }
@@ -132,6 +134,11 @@ static void noop_axisr(void* data, struct wl_pointer* pointer, uint32_t axis, ui
     (void) direction;
 }
 
+static void screendraw_done(void* data, struct wl_buffer* buffer) {
+    (void) buffer;
+    *(bool*) data = false;
+}
+
 struct selarea get_selection(struct selfaces* ifaces, struct surface_image* dispface) {
     dispface->buffer = NULL;
     dispface->wls = NULL;
@@ -173,6 +180,11 @@ struct selarea get_selection(struct selfaces* ifaces, struct surface_image* disp
         failed = true;
         goto exit;
     }
+    bool screendrawing = false;
+    struct wl_buffer_listener buffer_listener = {
+        .release = screendraw_done,
+    };
+    wl_buffer_add_listener(dispface->buffer, &buffer_listener, &screendrawing);
     curface.buffer = wl_shm_pool_create_buffer(pool, dispface->size, curface.width, curface.height, curface.stride, curface.format);
     if(!curface.buffer) {
         failed = true;
@@ -226,6 +238,7 @@ struct selarea get_selection(struct selfaces* ifaces, struct surface_image* disp
         .cursor_surface = curface.wls,
         .cursor_buffer = curface.buffer,
         .started = false,
+        .startedstarted = false,
         .ended = false
     };
     wl_pointer_add_listener(pointer, &pointer_listener, &ps);
@@ -243,6 +256,39 @@ struct selarea get_selection(struct selfaces* ifaces, struct surface_image* disp
         if(ps.ended || ps.cancelled) {
             break;
         }
+       
+        
+        if(!screendrawing && ps.startedstarted) {
+            screendrawing = true;
+            memcpy(rawbuf, dispface->bytbuf, dispface->size);
+            uint32_t sx, ex, sy, ey;
+            if(ps.startx < ps.endx) {
+                sx = ps.startx;
+                ex = ps.endx;
+            }
+            else {
+                sx = ps.endx;
+                ex = ps.startx;
+            }
+
+            if(ps.starty < ps.endy) {
+                sy = ps.starty;
+                ey = ps.endy;
+            }
+            else {
+                sy = ps.endy;
+                ey = ps.starty;
+            }
+            for(uint32_t i=sy; i<ey; i++) {
+                for(uint32_t j=sx; j<ex; j++) {
+                    ((uint32_t*)rawbuf)[dispface->width*i + j] &= 0xFF0000FF;
+                }
+            }
+            wl_surface_attach(dispface->wls, dispface->buffer, 0, 0);
+            wl_surface_damage_buffer(dispface->wls, 0, 0, dispface->width, dispface->height);
+            wl_surface_commit(dispface->wls);
+        }
+
     }
 
     wl_pointer_destroy(pointer);
