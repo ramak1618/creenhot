@@ -62,11 +62,11 @@ int main(int argc, char* argv[]) {
     struct image img = screencopy(fildes, display, interfaces.output, interfaces.shm, interfaces.screencopy_manager); 
     
 
-    struct scale_t sclimg;
+    struct scale_in sclsrc;
     switch(args.mode) {
         case CREENHOT_MODE_FULLSCREEN:
-            sclimg = (struct scale_t) {
-                .srcbuf = img.buf,
+            sclsrc = (struct scale_in) {
+                .buf = img.buf,
                 .width = img.width,
                 .height = img.height,
                 .stride = img.stride,
@@ -82,8 +82,8 @@ int main(int argc, char* argv[]) {
                 free(img.buf);
                 goto shm_clean;
             }
-            sclimg = (struct scale_t) {
-                .srcbuf = img.buf,
+            sclsrc = (struct scale_in) {
+                .buf = img.buf,
                 .width = args.cimg_width,
                 .height = args.cimg_height,
                 .stride = img.stride,
@@ -124,8 +124,8 @@ int main(int argc, char* argv[]) {
                 goto shm_clean;
             }
 
-            sclimg = (struct scale_t) {
-                .srcbuf = img.buf,
+            sclsrc = (struct scale_in) {
+                .buf = img.buf,
                 .width = region.width,
                 .height = region.height,
                 .stride = img.stride,
@@ -142,20 +142,20 @@ int main(int argc, char* argv[]) {
             goto shm_clean;
     }
 
-    ffmpeg_scale(&sclimg);
-    free(sclimg.srcbuf);
-    if(sclimg.failed) {
+    struct scale_out scldimg = ffmpeg_scale(&sclsrc);
+    free(sclsrc.buf);
+    if(scldimg.failed) {
         fprintf(stderr, "scale error!!\n");
         goto shm_clean;
     }
 
     struct encoder_t encimg = {
-        .imgbuf = sclimg.dstbuf,
+        .imgbuf = scldimg.buf,
         .ftype = args.ftype,
         .fmt = args.fmt,
-        .width = sclimg.width,
-        .height = sclimg.height,
-        .bpp = sclimg.dstBpp * 8
+        .width = sclsrc.width,
+        .height = sclsrc.height,
+        .bpp = scldimg.Bpp * 8
     };
     ffmpeg_encode(&encimg);
     free(encimg.imgbuf);

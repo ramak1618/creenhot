@@ -3,89 +3,98 @@
 #include <wayland-client.h>
 #include <string.h>
 
-static void init_av_pix_fmt(struct scale_t* img) {
-    switch(img->shmfmt) {
+static int get_av_pix_fmt(uint32_t shmfmt, enum AVPixelFormat* scrfmt, uint32_t* Bpp) {
+    switch(shmfmt) {
        case WL_SHM_FORMAT_BGRX8888:
-            img->scrfmt = AV_PIX_FMT_0RGB;
-            img->srcBpp = 4;
-            break;
+            *scrfmt = AV_PIX_FMT_0RGB;
+            *Bpp = 4;
+            return 0;
        case WL_SHM_FORMAT_XRGB8888:
-            img->scrfmt = AV_PIX_FMT_BGR0;
-            img->srcBpp = 4;
-            break;
+            *scrfmt = AV_PIX_FMT_BGR0;
+            *Bpp = 4;
+            return 0;
        case WL_SHM_FORMAT_RGBX8888:
-            img->scrfmt = AV_PIX_FMT_0BGR;
-            img->srcBpp = 4;
-            break;
+            *scrfmt = AV_PIX_FMT_0BGR;
+            *Bpp = 4;
+            return 0;
        case WL_SHM_FORMAT_XBGR8888:
-            img->scrfmt = AV_PIX_FMT_RGB0;
-            img->srcBpp = 4;
-            break;
+            *scrfmt = AV_PIX_FMT_RGB0;
+            *Bpp = 4;
+            return 0;
        case WL_SHM_FORMAT_BGRA8888:
-            img->scrfmt = AV_PIX_FMT_ARGB;
-            img->srcBpp = 4;
-            break;
+            *scrfmt = AV_PIX_FMT_ARGB;
+            *Bpp = 4;
+            return 0;
        case WL_SHM_FORMAT_ARGB8888:
-            img->scrfmt = AV_PIX_FMT_BGRA;
-            img->srcBpp = 4;
-            break;
+            *scrfmt = AV_PIX_FMT_BGRA;
+            *Bpp = 4;
+            return 0;
        case WL_SHM_FORMAT_RGBA8888:
-            img->scrfmt = AV_PIX_FMT_ABGR;
-            img->srcBpp = 4;
-            break;
+            *scrfmt = AV_PIX_FMT_ABGR;
+            *Bpp = 4;
+            return 0;
        case WL_SHM_FORMAT_ABGR8888:
-            img->scrfmt = AV_PIX_FMT_RGBA;
-            img->srcBpp = 4;
-            break;
+            *scrfmt = AV_PIX_FMT_RGBA;
+            *Bpp = 4;
+            return 0;
        default:
-            img->failed = true;
+            return -1;
     }
 }
 
-void ffmpeg_scale(struct scale_t* img) {
-    img->failed = false;
-    init_av_pix_fmt(img);
-    if(img->failed)
-        return;
+struct scale_out ffmpeg_scale(struct scale_in* img) {
+    enum AVPixelFormat scrfmt;
+    uint32_t srcBpp;
+    struct scale_out dstimg = {
+        .buf = NULL,
+        .Bpp = 0,
+        .failed = false
+    };
+    if(get_av_pix_fmt(img->shmfmt, &scrfmt, &srcBpp) < 0) {
+        dstimg.failed = true;
+        return dstimg;
+    }
 
     const AVPixFmtDescriptor* dstfmtdes = av_pix_fmt_desc_get(img->dstfmt);
-    img->dstBpp = av_get_padded_bits_per_pixel(dstfmtdes) / 8;
+    dstimg.Bpp = av_get_padded_bits_per_pixel(dstfmtdes) / 8;
 
     const uint8_t* srcplanes[AV_NUM_DATA_POINTERS] = {0};
     int srcstrides[AV_NUM_DATA_POINTERS] = {0};
     uint8_t* dstplanes[AV_NUM_DATA_POINTERS] = {0};
     int dststrides[AV_NUM_DATA_POINTERS] = {0};
 
-    srcplanes[0] = img->srcbuf + img->sy*img->stride + img->sx*img->srcBpp;
+    srcplanes[0] = img->buf + img->sy*img->stride + img->sx*srcBpp;
     srcstrides[0] = img->stride;
 
-    dststrides[0] = img->dstBpp * img->width;
+    dststrides[0] = dstimg.Bpp * img->width;
     dststrides[0] += (32 - dststrides[0]%32) % 32;
 
     dstplanes[0] = malloc(dststrides[0] * img->height);
     if(!dstplanes[0]) {
-        img->failed = true;
-        return;
+        dstimg.failed = true;
+        return dstimg;
     }
 
-    struct SwsContext* swsctx = sws_getContext(img->width, img->height, img->scrfmt, img->width, img->height, img->dstfmt, SWS_POINT, NULL, NULL, NULL);
+    struct SwsContext* swsctx = sws_getContext(img->width, img->height, scrfmt, img->width, img->height, img->dstfmt, SWS_POINT, NULL, NULL, NULL);
     if(!swsctx) {
-        img->failed = true;
+        dstimg.failed = true;
         goto exit;
     }
 
     int scale_success = sws_scale(swsctx, srcplanes, srcstrides, 0, img->height, dstplanes, dststrides);
     if(scale_success < 0) {
-        img->failed = true;
+        dstimg.failed = true;
         goto exit;
     }
 
-    img->dstbuf = dstplanes[0];
+    dstimg.buf = dstplanes[0];
 exit:
     if(swsctx) 
         sws_freeContext(swsctx);
-    if(img->failed)
+    if(dstimg.failed)
         free(dstplanes[0]);
+
+    return dstimg;
 }
 
 void ffmpeg_encode(struct encoder_t* img) {

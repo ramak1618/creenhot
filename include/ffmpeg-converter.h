@@ -8,26 +8,20 @@
 #include <libswscale/swscale.h>                                                                                                                    
 #include <libavutil/pixdesc.h>  
 
-struct scale_t {
-    // src
-    uint8_t* srcbuf;
+struct scale_in {
+    uint8_t* buf;
     uint32_t width;
     uint32_t height;
     uint32_t stride;
     uint32_t shmfmt;
-
     uint32_t sx;
     uint32_t sy;
-
-    uint32_t srcBpp;
-    enum AVPixelFormat scrfmt;
-
-    // dst
-    uint8_t* dstbuf;
-    uint32_t dstBpp;
     enum AVPixelFormat dstfmt;
+};
 
-    // flag
+struct scale_out {
+    uint8_t* buf;
+    uint32_t Bpp;
     bool failed;
 };
 
@@ -44,7 +38,7 @@ struct encoder_t {
     bool failed;
 };
 
-void ffmpeg_scale(struct scale_t* img);
+struct scale_out ffmpeg_scale(struct scale_in* img);
 void ffmpeg_encode(struct encoder_t* img);
 
 #endif
