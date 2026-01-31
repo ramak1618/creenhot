@@ -104,16 +104,33 @@ int main(int argc, char* argv[]) {
                 .wm_base = interfaces.wm_base
             };
 
-            struct surface_image dispimg = {
-                .bytbuf = img.buf,
-                .buffer = NULL,
-                .format = img.format,
+            struct scale_in xrgb_scl_in = {
+                .buf = img.buf,
                 .width = img.width,
                 .height = img.height,
                 .stride = img.stride,
-                .size = img.size
+                .shmfmt = img.format,
+                .dstfmt = AV_PIX_FMT_BGR0, //eq. WL_SHM_FORMAT_XRGB8888, which is almost certainly guarenteed to be supported by general compositors
+                .sx = 0,
+                .sy = 0,
+            };
+            struct scale_out xrgbd_img = ffmpeg_scale(&xrgb_scl_in);
+            if(xrgbd_img.failed) {
+                fprintf(stderr, "Error while converting pix fmts!\n");
+                free(img.buf);
+                goto shm_clean;
+            }
+            struct surface_image dispimg = {
+                .bytbuf = xrgbd_img.buf,
+                .buffer = NULL,
+                .format = WL_SHM_FORMAT_XRGB8888,
+                .width = img.width,
+                .height = img.height,
+                .stride = xrgbd_img.Bpp * img.width,
+                .size = xrgbd_img.Bpp * img.width * img.height
             };
             struct selarea region = get_selection(&sel_ifaces, &dispimg);
+            free(xrgbd_img.buf);
             if(region.failed) {
                 fprintf(stderr, "Error while selection!\n");
                 free(img.buf);

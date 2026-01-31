@@ -36,7 +36,7 @@ Dependencies
 
 Environment
 -----------
-A wlroots environment that supports `wlr_screencopy` is assumed.
+A wlroots-based compositor that supports `wlr_screencopy` is assumed, which also support `wl_shm surfaces` with pixel format `WL_SHM_FORMAT_XRGB8888`. Your compositor almost certainly will support this.  
 
 
 Example Usage:
