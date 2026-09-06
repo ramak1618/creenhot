@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
+#include <time.h>
 
 struct pointer_stuff {
     struct wl_surface* cursor_surface;
@@ -252,7 +253,13 @@ struct selarea get_selection(struct selfaces* ifaces, struct surface_image* disp
     wl_surface_commit(dispface->wls);
     wl_display_roundtrip(ifaces->display);
 
+    double target_spf = 1.0 / 60.0;
+    struct timespec spf = {(int32_t)target_spf, (int32_t)(target_spf * 1e9)};
+
     while(wl_display_dispatch(ifaces->display) != -1) {
+        struct timespec frame_start_time;
+        clock_gettime(CLOCK_MONOTONIC, &frame_start_time);
+
         if(ps.ended || ps.cancelled) {
             break;
         }
@@ -287,6 +294,20 @@ struct selarea get_selection(struct selfaces* ifaces, struct surface_image* disp
             wl_surface_attach(dispface->wls, dispface->buffer, 0, 0);
             wl_surface_damage_buffer(dispface->wls, 0, 0, dispface->width, dispface->height);
             wl_surface_commit(dispface->wls);
+
+            struct timespec frame_end_time;
+            clock_gettime(CLOCK_MONOTONIC, &frame_end_time);
+            int32_t delta_time_sec = (int32_t)frame_end_time.tv_sec - (int32_t)frame_start_time.tv_sec;
+            int32_t delta_time_nsec = (int32_t)frame_end_time.tv_nsec - (int32_t) frame_start_time.tv_nsec;
+            if(delta_time_nsec < 0) {
+                delta_time_nsec += 1000 * 1000 * 1000;
+                delta_time_sec --;
+            }
+
+            if(delta_time_sec <= spf.tv_sec && delta_time_nsec <= spf.tv_nsec) {
+                struct timespec sleep_time = {spf.tv_sec - delta_time_sec, spf.tv_nsec - delta_time_nsec};
+                nanosleep(&sleep_time, NULL);
+            }
         }
 
     }
